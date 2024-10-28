@@ -1,0 +1,10 @@
+scikit-learn
+spacy == 3.6.0
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.6.0/en_core_web_sm-3.6.0-py3-none-any.whl#sha256=83276fc78a70045627144786b52e1f2728ad5e29e5e43916ec37ea9c26a11212
+pysqlite3-binary
+streamlit
+PyPDF2
+google-generativeai
+python-dotenv
+chromadb == 0.5.3
+cohere
