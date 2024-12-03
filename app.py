@@ -1,6 +1,6 @@
-__import__('pysqlite3')
+# __import__('pysqlite3')
 import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 from dotenv import load_dotenv
 import json
 import os, time
@@ -11,10 +11,13 @@ import PyPDF2 as pdf
 import streamlit as st
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-import chromadb
+# import chromadb
 import cohere
-from chromadb.utils import embedding_functions
+# from chromadb.utils import embedding_functions
+from sentence_transformers import SentenceTransformer
 from parse_resume import resume_parser
+from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
+import configparser
 
 #--------------------------------------------LLM (Gemini pro) API-----------------------------------------------------------#
 # load gemini pro LLM model API from environment variable
@@ -93,40 +96,56 @@ Please limit the word count of cover letter no more than 300 words.
 #---------------------------------------------------Vector Database-------------------------------------------------------#
 
 # Get vector database collection from local storage
-chroma_client = chromadb.PersistentClient(path='database/')
-default_ef = embedding_functions.DefaultEmbeddingFunction()
-collection = chroma_client.get_collection(name="job_postings")
+# chroma_client = chromadb.PersistentClient(path='database/')
+# default_ef = embedding_functions.DefaultEmbeddingFunction()
+# collection = chroma_client.get_collection(name="job_postings")
 
-# Find the most relevant job description and return the job posting information 
-def get_relevant_ids(query, db, count=3, citizen_required = False, year_min = 0, year_max = 30):
-    passage = db.query(
-                query_texts = [query],
-                n_results = count, 
-                include = ["distances", "documents", "metadatas"],
-                where={    
-                    "$and": [
-                    {
-                        "citizen": {
-                            "$eq": citizen_required
-                        }
-                    },
-                    {
-                        "minimum": {
-                            "$lte": year_max
-                        }
-                    },
-                    {
-                        "minimum": {
-                            "$gte": year_min
-                        }
-                    }
-                    ] }
-                    )
-    ids = passage['ids'][0]
-    cos = passage['distances'][0]
-    doc = passage['documents'][0]
-    metadata = passage['metadatas'][0]
-    return ids, cos, doc, metadata
+cfp = configparser.RawConfigParser()
+cfp.read('config.ini')
+milvus_uri = cfp.get('jobmatch', 'uri')
+token = cfp.get('jobmatch', 'token')
+connections.connect("default", uri=milvus_uri, token=token)
+collection = Collection("job_listings") 
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+def get_relevant_ids(query, collection, count=3, citizen_required=False, year_min=0, year_max=30):
+    # Define search parameters
+    query_vector = embedder.encode(query).tolist()
+    
+    search_params = {
+        "metric_type": "COSINE",  # Use appropriate metric, e.g., "L2" or "IP" based on your use case
+        "params": {"nprobe": 10}  # Adjust nprobe for efficiency/accuracy tradeoff
+    }
+    
+    # Construct filters
+    bool_expr = f"citizenship == {citizen_required} && required_experience >= {year_min} && required_experience <= {year_max}"
+    
+    # Perform search
+    
+    search_results = collection.search(
+        data=[query_vector],  # Query vector
+        anns_field="job_description_vector",  # Replace with the name of your vector field
+        param=search_params,
+        limit=count,  # Number of results to retrieve
+        expr=bool_expr,  # Filter expression
+        output_fields=["*"]  # Replace with actual field names
+    )
+    
+    # Parse results
+    ids, distances, docs, metadatas = [], [], [], []
+    for hit in search_results[0]:
+        ids.append(hit.id)
+        distances.append(hit.distance)
+        docs.append(hit.entity.get("job_description_raw"))  
+        metadata={"info": hit.entity.get('info'),
+                  "minimum": hit.entity.get('required_experience'),
+                  "citizen": hit.entity.get('citizenship'),
+                  "link": hit.entity.get('job_apply_link')
+                 }
+        metadatas.append(metadata)  
+
+    return ids, distances, docs, metadatas
+
 
 # Upload resume
 resume = ''
