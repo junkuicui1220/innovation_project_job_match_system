@@ -117,8 +117,12 @@ def get_relevant_ids(query, collection, count=3, citizen_required=False, year_mi
         "params": {"nprobe": 10}  # Adjust nprobe for efficiency/accuracy tradeoff
     }
     
+    # 2024-11-25T00:00:00.000Z
+
+    # current time: 2024-12-06T00:00:00.000Z  - day(3) = timestamp
+
     # Construct filters
-    bool_expr = f"citizenship == {citizen_required} && required_experience >= {year_min} && required_experience <= {year_max}"
+    bool_expr = f"citizenship == {citizen_required} && required_experience >= {year_min} && required_experience <= {year_max}" # && post_time > {timestamp}"
     
     # Perform search
     
